@@ -1,0 +1,10 @@
+numpy==2.0.2
+pandas==2.2.3
+PyYAML==6.0.2
+tqdm==4.67.1
+jupyterlab==4.3.4
+xlrd==2.0.1
+openai==1.60.2
+nltk==3.9.1
+tiktoken==0.8.0
+scikit-learn==1.6.1

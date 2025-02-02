@@ -1,0 +1,13 @@
+data:
+  base_path: "/home/jfernav/nas/web-cnae-classification/data/"
+  raw_sabi: "raw/SABI_Export/"
+  merged_sabi: "temp/merged_sabi.csv"
+  column_names_sabi: ["", "name", "nif", "province", "sabi_url", "", "employees", "", "primary_cnae", "secondary_cnae"]
+  column_types_sabi: ["str", "str", "str", "url", "int", "str", "list"]
+  formatted_sabi: "temp/formatted_sabi.csv"
+  available_api: "raw/ES.csv"
+  filtered_sabi: "temp/filtered_sabi.csv"
+  redirections: "raw/allredirects.csv"
+  processed_sabi: "processed/sabi.csv"
+  raw_cnae: "raw/estructura_cnae2009.xls"
+  processed_cnae: "processed/cnae.csv"
