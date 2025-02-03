@@ -4,7 +4,7 @@ import sys
 import pandas as pd
 from tqdm import tqdm
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.data import open_csv, save_csv
+from utils.files import open_csv, save_csv
 
 ########################################################
 ###                   FILTER DATA                    ###

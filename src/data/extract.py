@@ -2,7 +2,7 @@ import os
 import sys
 from tqdm import tqdm
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.data import open_excel, save_csv
+from utils.files import open_excel, save_csv
 
 ########################################################
 ###                  EXTRACT CNAE                    ###

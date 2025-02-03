@@ -6,7 +6,7 @@ import argparse
 from tqdm import tqdm
 tqdm.pandas()
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.data import open_csv, save_csv
+from utils.files import open_csv, save_csv
 
 cnae_mapping = open_csv("/home/jfernav/nas/web-nace-classification/data/processed/cnae_mapping.csv")
 

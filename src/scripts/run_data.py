@@ -2,7 +2,7 @@ import os
 import sys
 import argparse
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.data import load_config
+from utils.files import load_config
 from data.extract import extract_data
 from data.transform import transform_data
 from data.merge import merge_data
