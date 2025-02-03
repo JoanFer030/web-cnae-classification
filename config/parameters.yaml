@@ -11,3 +11,9 @@ data:
   processed_sabi: "processed/sabi.csv"
   raw_cnae: "raw/estructura_cnae2009.xls"
   processed_cnae: "processed/cnae.csv"
+
+features:
+  base_path: "/home/jfernav/nas/web-cnae-classification/web-content/"
+  original: "original/"
+  processed: "processed/"
+  embeddings: "embeddings/"
