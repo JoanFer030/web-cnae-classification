@@ -9,7 +9,7 @@ from utils.files import open_web, list_webs
 ########################################################
 ###                  CREATE EMBEDDING                ###
 ########################################################
-def chunk_text(text: str, max_tokens: int, model: str = "gpt-4"):
+def chunk_text(text: str, max_tokens: int, model: str = "cl100k_base"):
     """
     Divide the text in chunks of the maximum number of tokens.
     """
