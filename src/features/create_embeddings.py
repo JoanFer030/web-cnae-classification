@@ -4,12 +4,12 @@ import tiktoken
 from tqdm import tqdm
 from openai import OpenAI
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.files import open_web, list_webs
+from utils.files import open_web, list_files
 
 ########################################################
 ###                  CREATE EMBEDDING                ###
 ########################################################
-def chunk_text(text: str, max_tokens: int, model: str = "cl100k_base"):
+def chunk_text(text: str, max_tokens: int, model: str = "gpt-4"):
     """
     Divide the text in chunks of the maximum number of tokens.
     """
@@ -58,9 +58,13 @@ def generate_embeddings(client: OpenAI, folder_path: str, save_path: str):
     chunk and stores all in one file.
     """
     webs = 0
-    webs_list = list_webs(folder_path)
+    webs_list = list_files(folder_path)
+    already_created = set([n for n, _ in list_files(save_path)])
     for i in tqdm(range(len(webs_list)), desc = "Creating vector embeddings"):
         nif, web_path = webs_list[i]
+        if nif in already_created:
+            webs += 1
+            continue
         text = open_web(web_path)
         chunks = chunk_text(text, 8191)
         embedding = []

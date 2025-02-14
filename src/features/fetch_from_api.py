@@ -5,7 +5,7 @@ import requests
 import pandas as pd
 from tqdm import tqdm
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.files import open_csv, save_web
+from utils.files import open_csv, save_web, list_files
 
 ########################################################
 ###                     FETCH WEBS                   ###
@@ -38,9 +38,13 @@ def download_web_content(companies: pd.DataFrame, folder_path: str, api_key: str
     they exists in the API.
     """
     webs = 0
+    already_fetch = set([n for n, _ in list_files(folder_path)])
     for idx in tqdm(range(len(companies))):
         row = companies.loc[idx]
         nif, url = row["nif"], row["redirect_url"]
+        if nif in already_fetch:
+            webs += 1
+            continue
         content = fetch_web(url, api_key)
         if content:
             webs += 1

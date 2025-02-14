@@ -3,7 +3,7 @@ import re
 import sys
 from tqdm import tqdm
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.files import list_webs, open_web, save_web
+from utils.files import list_files, open_web, save_web
 
 ########################################################
 ###                    PROCESS WEBS                  ###
@@ -25,9 +25,13 @@ def process_webs(original_path: str, save_path: str):
     and stores them again.
     """
     webs = 0
-    webs_list = list_webs(original_path)
+    webs_list = list_files(original_path)
+    already_processed = set([n for n, _ in list_files(save_path)])
     for i in tqdm(range(len(webs_list)), desc = "Processing web content"):
         nif, web_path = webs_list[i]
+        if nif in already_processed:
+            webs += 1
+            continue
         content = open_web(web_path)
         processed = clean_content(content)
         if processed:

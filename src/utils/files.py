@@ -85,7 +85,7 @@ def save_web(content: str, nif: str, folder_path: str):
     with open(save_path, "w") as file:
         file.write(content)
 
-def list_webs(folder_path: str) -> tuple[list[str], list[str]]:
+def list_files(folder_path: str) -> tuple[list[str], list[str]]:
     """
     Given the path of the folder lists all the files in 
     it and extracts the nif from them.
@@ -94,9 +94,9 @@ def list_webs(folder_path: str) -> tuple[list[str], list[str]]:
         print("The given path does not exists.")
         return []
     files = os.listdir(folder_path)
-    webs_list = []
+    files_list = []
     for file in files:
         nif = file.split(".")[0]
         path = folder_path + file
-        webs_list.append((nif, path))
-    return webs_list
+        files_list.append((nif, path))
+    return files_list
