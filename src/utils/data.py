@@ -1,7 +1,7 @@
 import os
 import sys
+import random
 import pandas as pd
-from tqdm import tqdm
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.files import load_config, open_csv
 
@@ -85,7 +85,7 @@ class Data:
             print(f"The file '{path}' does not exist.")
     
     def load_with_label(self, level: int = 1):
-        if level > 4:
+        if level < 0 or  level > 4:
             raise ValueError("The level must be an integer between 1 and 4.")
         def get_label(code: str, level: int):
             temp = self.cnae.get(code, "")
@@ -108,9 +108,7 @@ class Data:
         temp = temp[temp["available"] == True].reset_index()
         X = []
         y = []
-        i = 0
         for _, row in temp.iterrows():
-            i += 1
             nif = row["nif"]
             path = self.embedding_paths.get(nif, "")
             if not path:
@@ -119,8 +117,6 @@ class Data:
             label = row["label"]
             X.append(embedding)
             y.append(label)
-            if i > 10:
-                break
         return X, y
 
     def load_sample(self, balanced: bool = False, level: int = 1, embedding_process: str = "none"
@@ -135,6 +131,10 @@ class Data:
                 raise ValueError("Enter the 'total' parameter to sample an unbalanced dataset.")
             else:
                 total = kwargs["total"]
+        if "seed" in kwargs:
+            seed = kwargs["seed"]
+        else:
+            seed = int(random.random()*1000)
         temp = self.load_with_label(level)
         temp = temp[temp["available"] == True].reset_index()
         sample = pd.DataFrame()
@@ -147,7 +147,7 @@ class Data:
                     continue
                 subset_sample = subset.sample(n            = min_amount, 
                                               replace      = False, 
-                                              random_state = 2006)
+                                              random_state = seed)
                 sample = pd.concat([sample, subset_sample], ignore_index = True)
             print(f"Categories {', '.join(skipped)} have been skipped.")
         else:
@@ -159,7 +159,7 @@ class Data:
                     skipped.append(label)
                 subset_sample = subset.sample(n            = amount, 
                                               replace      = False, 
-                                              random_state = 2006)
+                                              random_state = seed)
                 sample = pd.concat([sample, subset_sample], ignore_index = True)
             print(f"Categories {', '.join(skipped)} have been skipped.")
         X = []
