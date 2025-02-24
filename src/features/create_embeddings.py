@@ -1,6 +1,7 @@
 import os
 import sys
 import tiktoken
+import numpy as np
 from tqdm import tqdm
 from openai import OpenAI
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -41,15 +42,12 @@ def get_embedding(client: OpenAI, text: str, model: str = "text-embedding-3-smal
 def save_embedding(embedding: list[float], nif: str, folder_path: str):
     """
     It recives a vector containing the embedding and saves it into a 
-    plain text file where each line contains a value. The created 
-    file is named with the nif of the company.
+    npy file.
     """
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
-    save_path = folder_path + nif + ".txt"
-    processed = "\n".join([str(e) for e in embedding])
-    with open(save_path, "w") as file:
-        file.write(processed)
+    save_path = folder_path + nif + ".npy"
+    np.save(save_path, embedding)
 
 def generate_embeddings(client: OpenAI, folder_path: str, save_path: str):
     """
