@@ -1,19 +1,75 @@
 import os
 import sys
 import random
+import numpy as np
 import pandas as pd
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.files import load_config, open_csv
+
+class Preprocess:
+    def __init__(self, dim: int):
+        self._dim = dim
+        self._preprocess_funcs = {
+            "raw": self._raw_embedding,
+            "truncate": self._truncate_embedding,
+            "pooling":{
+                "max": self._pooling_max_embedding,
+                "mean": self._pooling_mean_embedding,
+                "sum": self._pooling_sum_embedding,
+            },
+        }
+
+    def get_function(self, input_dict: dict):
+        if "preprocess" in input_dict:
+            preprocess_func = self._preprocess_funcs.get(input_dict["preprocess"], self._raw_embedding)
+            if isinstance(preprocess_func, dict):
+                if "type" in input_dict and input_dict["type"] in preprocess_func:
+                    preprocess_func = preprocess_func[input_dict["type"]]
+                    return preprocess_func
+                else:
+                    raise ValueError(f"The {input_dict['preprocess']} type ('type') must be a string: {', '.join(list(preprocess_func.keys()))}.")
+            else:
+                return preprocess_func
+        else:
+            print("It has not been especified any preprocessing, the raw embedding will be loaded.")
+            return self._raw_embedding
+
+    def _raw_embedding(self, embedding: list[float]):
+        return embedding
+
+    def _truncate_embedding(self, embedding: list[float]):
+        n_embedding = embedding[:self._dim]
+        return n_embedding   
+
+    def _split_vector(self, vector, dim):
+        return vector.reshape(-1, dim)
+
+    def _pooling_max_embedding(self, embedding: list[float]):
+        r_embedding = self._split_vector(embedding, self._dim)
+        n_embedding = np.max(r_embedding, axis = 0)
+        return n_embedding
+    
+    def _pooling_mean_embedding(self, embedding: list[float]):
+        r_embedding = self._split_vector(embedding, self._dim)
+        n_embedding = np.mean(r_embedding, axis = 0)
+        return n_embedding
+    
+    def _pooling_sum_embedding(self, embedding: list[float]):
+        r_embedding = self._split_vector(embedding, self._dim)
+        n_embedding = np.sum(r_embedding, axis = 0)
+        return n_embedding 
 
 class Data:
     def __init__(self, config_path: str):
         config = load_config(config_path)
         sabi_path = config["data"]["base_path"] + config["data"]["processed_sabi"]
         cnae_path = config["data"]["base_path"] + config["data"]["processed_cnae"]
-        self.embedding_path = config["features"]["base_path"] + config["features"]["embeddings"]
-        self.embedding_paths = {}
-        self.cnae = self._load_cnae(cnae_path)
-        self.sabi = self._load_sabi(sabi_path)
+        dimensions = config["features"]["embedding_dimension"]
+        self._embedding_path = config["features"]["base_path"] + config["features"]["embeddings"]
+        self._distribution_path = config["data"]["base_path"] + config["data"]["processed_distribution"]
+        self._load_cnae(cnae_path)
+        self._load_sabi(sabi_path)
+        self._preprocess = Preprocess(dimensions)
 
     def _load_sabi(self, path: str) -> pd.DataFrame:
         dtypes = {"name": str, 
@@ -30,7 +86,7 @@ class Data:
         dataframe.columns = ["nif", "name", "employees", "province",
                                "url", "primary_cnae", "secondary_cnae"]
         dataframe["available"] = self._get_embedding_availability(dataframe["nif"].to_list())
-        return dataframe
+        self.sabi = dataframe
 
     def _load_cnae(self, path: str) -> dict:
         cnae_df = open_csv(path)
@@ -41,19 +97,51 @@ class Data:
                           "level_2": (row["level_2_code"], row["level_2_label"]),
                           "level_3": (row["level_3_code"], row["level_3_label"]),
                           "level_4": (code,                row["level_4_label"])}
-        return cnae
+        self._cnae = cnae
+    
+    def load_distribution(self, level: int = 2) -> pd.DataFrame:
+        if level not in [1, 2]:
+            raise ValueError("The level must be an integer between 1 and 2.")
+        dtypes = {"main_activity": str, 
+                  "description": str,
+                  "total": int}
+        distribution = pd.read_csv(self._distribution_path, sep = ";", converters = dtypes, encoding = "latin-1")
+        if level == 2:
+            return distribution
+        distribution["main_activity_1"] = distribution["main_activity"].apply(lambda x: self._get_cnae_data(x, level=level, value="label"))
+        distribution["description_1"] = distribution["main_activity"].apply(lambda x: self._get_cnae_data(x, level=level, value="description"))
+        grouped_distribution = distribution.groupby(["main_activity_1", "description_1"], as_index=False).agg({"total": "sum"})
+        grouped_distribution.rename(columns={
+            "main_activity_1": "main_activity",
+            "description_1": "description"
+        }, inplace=True)
+        return grouped_distribution
+        
+    def _get_embedding_availability(self, nif_list: list[str]) -> list[bool]:
+        nif_set = set(nif_list)
+        self._embedding_paths = {}
+        available_nifs = {file.name[:-4]: file.path for file in os.scandir(self._embedding_path) if file.name[:-4] in nif_set}
+        self._embedding_paths.update(available_nifs)
+        return [nif in available_nifs for nif in nif_list]
 
-    def _get_embedding_availability(self, nif_list: list[str]) -> bool:
-        nif_availability = [False] * len(nif_list)
-        for file in os.scandir(self.embedding_path):
-            name = file.name[:-4]
-            try:
-                idx = nif_list.index(name)
-                nif_availability[idx] = True
-                self.embedding_paths[name] = file.path
-            except:
-                pass
-        return nif_availability
+    def _get_cnae_data(self, code: str, level: int, value: str = "label"):
+            if value == "label":
+                i = 0
+            elif value in ["desc", "description"]:
+                i = 1
+            else:
+                raise ValueError("The value type has to be 'label' or 'description'.")
+            if len(code) == 4:
+                temp = self._cnae.get(code, "")
+            else:
+                temp = ""
+                for key, value in self._cnae.items():
+                    if key.startswith(code):
+                        temp = value
+                        break
+            if not temp:
+                return pd.NA
+            return temp[f"level_{level}"][i]
 
     def _get_main_label(self, nif: str, level: int) -> str:
         company = self.dataframe[self.dataframe["nif"] == nif]
@@ -62,65 +150,110 @@ class Data:
         if level > 4:
             raise ValueError("The level must be an integer between 1 and 4.")
         primary_cnae = str(company["primary_cnae"])
-        info = self.cnae.get(primary_cnae, "")
-        if not info:
-            return pd.NA
-        label = info[f"level_{level}"][0]
+        label = self._get_cnae_data(code = primary_cnae, level = level, value = "label")
         return label
 
-    def _get_embedding(self, path: str, process: str, len_embedding: int = 1536) -> list[float]:
+    def _get_embedding(self, path: str, preprocess) -> list[float]:
         try:
-            with open(path, "r") as file:
-                if process == "none":
-                    lines = file.readlines()
-                    embedding = [float(value) for value in lines]
-                elif process == "first":
-                    embedding = []
-                    while len(embedding) < len_embedding:
-                        embedding.append(float(file.readline()))
-                else:
-                    print("The preprocess type does not exists.")
-            return embedding
+            embedding = np.load(path)
+            processed_embedding = preprocess(embedding)
+            return processed_embedding
         except:
             print(f"The file '{path}' does not exist.")
-    
-    def load_with_label(self, level: int = 1):
-        if level < 0 or  level > 4:
-            raise ValueError("The level must be an integer between 1 and 4.")
-        def get_label(code: str, level: int):
-            temp = self.cnae.get(code, "")
-            if not temp:
-                return pd.NA
-            return temp[f"level_{level}"][0]
-        def get_desc(code: str, level: int):
-            temp = self.cnae.get(code, "")
-            if not temp:
-                return pd.NA
-            return temp[f"level_{level}"][1]
-            
-        label_dataframe = self.sabi.copy()
-        label_dataframe["label"] = label_dataframe["primary_cnae"].apply(get_label, level = level)
-        label_dataframe["description"] = label_dataframe["primary_cnae"].apply(get_desc, level = level)
-        return label_dataframe
 
-    def load_all(self, level: int = 1, embedding_process: str = "none") -> tuple[list[list[float]], list[str]]:
-        temp = self.load_with_label(level)
-        temp = temp[temp["available"] == True].reset_index()
-        X = []
-        y = []
-        for _, row in temp.iterrows():
+    def load_with_label(self, level = 1):
+        if isinstance(level, int):
+            if level < 0 or level > 4:
+                raise ValueError("The level must be an integer between 1 and 4.")
+            label_dataframe = self.sabi.copy()
+            label_dataframe["label"] = label_dataframe["primary_cnae"].apply(self._get_cnae_data, level = level, value = "label")
+            label_dataframe["description"] = label_dataframe["primary_cnae"].apply(self._get_cnae_data, level = level, value = "description")
+
+        elif isinstance(level, list):
+            level_list = level
+            for level in level_list:
+                if not isinstance(level, int) or (level < 0 or level > 4):
+                    raise ValueError("The level must be an integer between 1 and 4.")
+            label_dataframe = self.sabi.copy()
+            for level in level_list:
+                label_dataframe[f"label_{level}"] = label_dataframe["primary_cnae"].apply(self._get_cnae_data, level = level, value = "label")
+                label_dataframe[f"description_{level}"] = label_dataframe["primary_cnae"].apply(self._get_cnae_data, level = level, value = "description")
+        return label_dataframe
+    
+    def random_sample(self, n: int, level) -> list[tuple[list[float], tuple[str]]]:
+        """
+        Generates a random sample of `n` rows from the dataset and retrieves their corresponding embeddings and labels.
+
+        This function selects a random sample from the dataset (`self.sabi`), retrieves the embedding for each sample,
+        and collects the labels based on the specified `level` parameter. The resulting sample consists of 
+        tuples where each tuple contains an embedding and its corresponding label(s).
+
+        Parameters:
+        -----------
+        n : int
+            The number of random samples to retrieve.
+        
+        level : list or int
+            If `level` is a list, multiple labels are extracted.
+            If `level` is an integer, a single label is extracted.
+
+        Returns:
+        --------
+        list[tuple[list[float], tuple[str]]]
+            A list of tuples, where each tuple contains:
+            - A list of floats representing the embedding of the sample.
+            - A tuple of strings representing the label(s) associated with the sample.
+        """
+        sample = []
+        level_data = self.load_with_label(level = level)
+        level_data = level_data[level_data["available"] == True].reset_index()
+        random_sample = level_data.sample(n = n)
+        prep_func = self._preprocess.get_function({"preprocess": "raw"})
+        for _, row in random_sample.iterrows():
             nif = row["nif"]
-            path = self.embedding_paths.get(nif, "")
+            path = self._embedding_paths.get(nif, "")
             if not path:
                continue
-            embedding = self._get_embedding(path, embedding_process)
-            label = row["label"]
+            embedding = self._get_embedding(path, prep_func)
+            if isinstance(level, list):
+                label = []
+                for l in level:
+                    label.append(row[f"label_{l}"])
+                label = tuple(label)
+            elif isinstance(level, int):
+                label = row["label"]
+            sample.append((embedding, label))
+        return sample
+
+    def _load_data_from_df(self, df: pd.DataFrame, preprocess_func) -> tuple[list[list[float]], list[str]]:
+        X = []
+        y = []
+        labels = [name for name in df.columns if name.startswith("label")]
+        for _, row in df.iterrows():
+            nif = row["nif"]
+            path = self._embedding_paths.get(nif, "")
+            if not path:
+                continue
+            embedding = self._get_embedding(path, preprocess_func)
+            if len(labels) > 1:
+                label = []
+                for l in labels:
+                    label.append(row[f"label_{l}"])
+                label = tuple(label)
+            else:
+                label = row[labels[0]]
             X.append(embedding)
             y.append(label)
         return X, y
 
-    def load_sample(self, balanced: bool = False, level: int = 1, embedding_process: str = "none"
-                    , **kwargs) -> tuple[list[list[float]], list[str]]:
+    def load_all(self, level: int = 1) -> tuple[list[list[float]], list[str]]:
+        temp = self.load_with_label(level)
+        companies = temp[temp["available"] == True].reset_index()
+        prep_func = self._preprocess.get_function({"preprocess": "raw"})
+        X, y = self._load_data_from_df(companies, prep_func)
+        return X, y
+
+    def load_sample(self, level, balanced: bool = False, **kwargs) -> tuple[list[list[float]], list[str]]:
         if balanced:
             if "min_amount" not in kwargs:
                 raise ValueError("Enter the 'min_amount' parameter to sample a balanced dataset.")
@@ -138,10 +271,15 @@ class Data:
         temp = self.load_with_label(level)
         temp = temp[temp["available"] == True].reset_index()
         sample = pd.DataFrame()
+        if isinstance(level, list):
+            max_detail = max(level)
+            label_name = f"label_{max_detail}"
+        elif isinstance(level, int):
+            label_name = "label"
+        skipped = []
         if balanced:
-            skipped = []
-            for label in temp["label"].unique():
-                subset = temp[temp["label"] == label]
+            for label in temp[label_name].unique():
+                subset = temp[temp[label_name] == label]
                 if len(subset) < min_amount:
                     skipped.append(label)
                     continue
@@ -149,28 +287,74 @@ class Data:
                                               replace      = False, 
                                               random_state = seed)
                 sample = pd.concat([sample, subset_sample], ignore_index = True)
-            print(f"Categories {', '.join(skipped)} have been skipped.")
         else:
-            for label in temp["label"].unique():
-                subset = temp[temp["label"] == label]
+            for label in temp[label_name].unique():
+                subset = temp[temp[label_name] == label]
                 amount = int(round((len(subset)/len(temp)) * total, 0))
-                skipped = []
+                print(label, amount)
                 if amount < 1:
                     skipped.append(label)
                 subset_sample = subset.sample(n            = amount, 
                                               replace      = False, 
                                               random_state = seed)
                 sample = pd.concat([sample, subset_sample], ignore_index = True)
-            print(f"Categories {', '.join(skipped)} have been skipped.")
-        X = []
-        y = []
-        for _, row in sample.iterrows():
-            nif = row["nif"]
-            path = self.embedding_paths.get(nif, "")
-            if not path:
-                continue
-            embedding = self._get_embedding(path, embedding_process)
-            label = row["label"]
-            X.append(embedding)
-            y.append(label)
+        print(f"Categories {', '.join(skipped)} have been skipped.")
+        preprocess_func = self._preprocess.get_function(kwargs)
+        X, y = self._load_data_from_df(sample, preprocess_func)
+        print(f"The embedding and label of {len(X)} companies have been loaded.")
         return X, y
+
+    def load_training_test_data(self, level, train_cat_size: int, test_cat_prop: float, discard: list = [], **kwargs) -> tuple[list[list[float]], list[str]]:
+        if not (0 < test_cat_prop < 1):
+            raise ValueError("The test size has to be between 0 and 1.")
+        if "seed" in kwargs:
+            seed = kwargs["seed"]
+        else:
+            seed = int(random.random()*1000)
+        temp = self.load_with_label(level)
+        temp = temp[temp["available"] == True].reset_index()
+        if isinstance(level, list):
+            max_detail = max(level)
+            label_name = f"label_{max_detail}"
+        elif isinstance(level, int):
+            label_name = "label"
+        labels = temp[label_name].unique()
+        # Training sample
+        train_sample = pd.DataFrame()
+        if level > 1:
+            to_skip = [l for l in labels if self._get_cnae_data(l, 1, "label") in discard]
+        else:
+            to_skip = discard
+        for label in labels:
+            subset = temp[temp[label_name] == label]
+            if label in to_skip:
+                continue
+            elif len(subset) < ((1 + test_cat_prop) * train_cat_size):
+                size = int(len(subset) - (test_cat_prop * train_cat_size))
+            else:
+                size = train_cat_size
+            subset_sample = subset.sample(n            = size, 
+                                          replace      = False, 
+                                          random_state = seed)
+            train_sample = pd.concat([train_sample, subset_sample], ignore_index = True)
+        # Test sample
+        test_sample = pd.DataFrame()
+        test_cat_size = ((len(labels) - len(to_skip)) * train_cat_size) * test_cat_prop
+        for label in labels:
+            if label in to_skip:
+                continue
+            temp_subset = temp[temp[label_name] == label]
+            subset = temp_subset[~temp_subset["nif"].isin(train_sample["nif"])]
+            amount = int((len(temp_subset)/len(temp)) * test_cat_size)
+            if amount < 1:
+                continue
+            subset_sample = subset.sample(n            = amount, 
+                                          replace      = False, 
+                                          random_state = seed)
+            test_sample = pd.concat([test_sample, subset_sample], ignore_index = True)
+        print(f"Categories {', '.join(to_skip)} have been skipped.")
+        prep_func = self._preprocess.get_function(kwargs)
+        X_train, y_train = self._load_data_from_df(train_sample, prep_func)
+        X_test, y_test = self._load_data_from_df(test_sample, prep_func)
+        print(f"It have been loaded {len(X_train)} companies for training and {len(X_test)} companies for testing.")
+        return (X_train, y_train), (X_test, y_test)
