@@ -19,3 +19,8 @@ features:
   processed: "processed/"
   embeddings: "embeddings_npy/"
   embedding_dimension: 1536
+
+models:
+  base_path: "/home/jfernav/nas/web-cnae-classification/models/"
+  level_1: "level_1/"
+  

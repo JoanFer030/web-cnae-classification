@@ -60,8 +60,13 @@ class Preprocess:
         return n_embedding 
 
 class Data:
-    def __init__(self, config_path: str):
-        config = load_config(config_path)
+    def __init__(self, config):
+        if isinstance(config, str):
+            config = load_config(config)
+        elif isinstance(config, dict):
+            pass
+        else:
+            raise ValueError("Invalid input.")
         sabi_path = config["data"]["base_path"] + config["data"]["processed_sabi"]
         cnae_path = config["data"]["base_path"] + config["data"]["processed_cnae"]
         dimensions = config["features"]["embedding_dimension"]
@@ -238,7 +243,7 @@ class Data:
             if len(labels) > 1:
                 label = []
                 for l in labels:
-                    label.append(row[f"label_{l}"])
+                    label.append(row[l])
                 label = tuple(label)
             else:
                 label = row[labels[0]]
@@ -264,10 +269,7 @@ class Data:
                 raise ValueError("Enter the 'total' parameter to sample an unbalanced dataset.")
             else:
                 total = kwargs["total"]
-        if "seed" in kwargs:
-            seed = kwargs["seed"]
-        else:
-            seed = int(random.random()*1000)
+        seed = kwargs.get("seed", int(random.random()*1000))
         temp = self.load_with_label(level)
         temp = temp[temp["available"] == True].reset_index()
         sample = pd.DataFrame()
@@ -307,10 +309,11 @@ class Data:
     def load_training_test_data(self, level, train_cat_size: int, test_cat_prop: float, discard: list = [], **kwargs) -> tuple[list[list[float]], list[str]]:
         if not (0 < test_cat_prop < 1):
             raise ValueError("The test size has to be between 0 and 1.")
-        if "seed" in kwargs:
-            seed = kwargs["seed"]
-        else:
-            seed = int(random.random()*1000)
+        seed = kwargs.get("seed", int(random.random()*1000))
+        min_amount = kwargs.get("min_amount", 0)
+        if "custom_dim" in kwargs:
+            initial_dim = self._preprocess._dim
+            self._preprocess = Preprocess(kwargs["custom_dim"])
         temp = self.load_with_label(level)
         temp = temp[temp["available"] == True].reset_index()
         if isinstance(level, list):
@@ -321,7 +324,7 @@ class Data:
         labels = temp[label_name].unique()
         # Training sample
         train_sample = pd.DataFrame()
-        if level > 1:
+        if isinstance(level, list) or level > 1:
             to_skip = [l for l in labels if self._get_cnae_data(l, 1, "label") in discard]
         else:
             to_skip = discard
@@ -333,6 +336,10 @@ class Data:
                 size = int(len(subset) - (test_cat_prop * train_cat_size))
             else:
                 size = train_cat_size
+            if size < min_amount:
+                print(f"Category {label} has been skipped due to an insufficient number of samples ({len(subset)} samples, at least {int((test_cat_prop * train_cat_size) + 1)} required).")
+                to_skip.append(label)
+                continue
             subset_sample = subset.sample(n            = size, 
                                           replace      = False, 
                                           random_state = seed)
@@ -356,5 +363,71 @@ class Data:
         prep_func = self._preprocess.get_function(kwargs)
         X_train, y_train = self._load_data_from_df(train_sample, prep_func)
         X_test, y_test = self._load_data_from_df(test_sample, prep_func)
-        print(f"It have been loaded {len(X_train)} companies for training and {len(X_test)} companies for testing.")
+        print(f"It has loaded {len(X_train)} companies for training and {len(X_test)} companies for testing, spanning {len(labels) - len(to_skip)} categories.")
+        if "custom_dim" in kwargs:
+            self._preprocess = Preprocess(initial_dim)
         return (X_train, y_train), (X_test, y_test)
+
+    def load_hierarchical_training_test_data(self, max_level: int, train_amount: tuple[int, int], test_prop: float, to_skip: list, **kwargs):
+        if max_level < 2 or max_level > 4:
+            raise ValueError("The maximum detail level must be between 2 and 4.")
+        seed = kwargs.get("seed", int(random.random()*1000))
+        min_amount = kwargs.get("min_amount", 0)
+
+        levels = list(range(1, max_level+1, 1))
+        temp = self.load_with_label(levels)
+        temp = temp[temp["available"] == True].reset_index()
+        test_size = ((len(temp["label_2"].unique())) * train_amount[0]) * test_prop
+
+        train_level_1 = ([], [])
+        train_level_2 = {}
+        test = ([], [])
+        prep_func = self._preprocess.get_function(kwargs)
+
+        for level_1_label in temp["label_1"].unique():
+            if level_1_label in to_skip:
+                continue
+            subset_1 = temp[temp["label_1"] == level_1_label]
+            labels_level_2 = subset_1["label_2"].unique()
+            default_level_2 = max(train_amount[0], int(min(len(subset_1), train_amount[1])/len(labels_level_2)))
+            temp_train_level_2 = ([], [])
+
+            print("Section:", level_1_label)
+
+            for level_2_label in labels_level_2:
+                subset_2 = subset_1[subset_1["label_2"] == level_2_label]
+                test_amount = max(1, int((len(subset_2)/len(temp)) * test_size))
+                if len(subset_2) <= (test_amount + default_level_2):
+                    size = int(len(subset_2) - test_amount)
+                else:
+                    size = default_level_2
+                if size < min_amount:
+                    print(f"Category {level_2_label} has been skipped due to an insufficient number of samples.")
+                    continue
+
+                print("  - Division:", level_2_label)
+                print(f"    Subset: {len(subset_2)}  |  Train: {size}  |  Test: {test_amount}  | Default: {default_level_2}")
+
+                train_subset = subset_2.sample(n            = size, 
+                                               replace      = False, 
+                                               random_state = seed)
+                temp_test_subset = subset_2[~subset_2["nif"].isin(train_subset["nif"])]
+                if test_amount < 1:
+                    continue
+                test_subset = temp_test_subset.sample(n            = test_amount, 
+                                                      replace      = False, 
+                                                      random_state = seed)
+                
+                X_train, _ = self._load_data_from_df(train_subset, prep_func)
+                X_test, _ = self._load_data_from_df(test_subset, prep_func)
+                train_level_1[0].extend(X_train)
+                train_level_1[1].extend([level_1_label] * len(X_train))
+                temp_train_level_2[0].extend(X_train)
+                temp_train_level_2[1].extend([level_2_label] * len(X_train))
+                test[0].extend(X_test)
+                test[1].extend([level_2_label] * len(X_test))
+            print(f"  Total: {len(temp_train_level_2[0])}")
+            
+            train_level_2[level_1_label] = temp_train_level_2
+
+        return train_level_1, train_level_2, test
