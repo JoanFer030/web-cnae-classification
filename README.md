@@ -24,9 +24,9 @@ The classification system follows a hierarchical approach aligned with the CNAE 
 ```mermaid
 graph TD
     A[Input: feature vector] --> B[Level 1 classifier<br/>#40;CNAE section#41;]
-    B --> C1[Section A<br/>Model #40;A#41;]
-    B --> C2[Section D<br/>Model #40;D#41;]
-    B --> C3[Section U<br/>Model #40;U#41;]
+    B --> C1((Section A<br/>#40;Model#41;))
+    B --> C2((Section D<br/>#40;Model#41;))
+    B --> C3((Section U<br/>#40;Model#41;))
     C1 --> D[Prediction: CNAE level 2 class]
     C2 --> D
     C3 --> D
