@@ -2,10 +2,8 @@
 .venv/
 
 # Data files
-data/raw/
-data/processed/
-data/temp/
-
+*/data/
+*/temp/
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
