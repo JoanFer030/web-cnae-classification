@@ -46,7 +46,6 @@ To reproduce or extend the analysis, follow these steps. All necessary parameter
 
 * Python 3.10+
 * `pip install -r requirements.txt`
-* OpenAI API key (for embedding generation)
 
 #### Scripts
 
