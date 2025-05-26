@@ -3,6 +3,7 @@ import sys
 import random
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.files import load_config, open_csv
 
@@ -31,7 +32,7 @@ class Preprocess:
             else:
                 return preprocess_func
         else:
-            print("It has not been especified any preprocessing, the raw embedding will be loaded.")
+            print("Any preprocessing has been specified, the raw embedding will be loaded.")
             return self._raw_embedding
 
     def _raw_embedding(self, embedding: list[float]):
@@ -258,7 +259,7 @@ class Data:
         X, y = self._load_data_from_df(companies, prep_func)
         return X, y
 
-    def load_sample(self, level, balanced: bool = False, **kwargs) -> tuple[list[list[float]], list[str]]:
+    def load_sample(self, level, balanced: bool = False, verbose: bool = True, **kwargs) -> tuple[list[list[float]], list[str]]:
         if balanced:
             if "min_amount" not in kwargs:
                 raise ValueError("Enter the 'min_amount' parameter to sample a balanced dataset.")
@@ -293,20 +294,21 @@ class Data:
             for label in temp[label_name].unique():
                 subset = temp[temp[label_name] == label]
                 amount = int(round((len(subset)/len(temp)) * total, 0))
-                print(label, amount)
                 if amount < 1:
                     skipped.append(label)
                 subset_sample = subset.sample(n            = amount, 
                                               replace      = False, 
                                               random_state = seed)
                 sample = pd.concat([sample, subset_sample], ignore_index = True)
-        print(f"Categories {', '.join(skipped)} have been skipped.")
+        if verbose:
+            print(f"Categories {', '.join(skipped)} have been skipped.")
         preprocess_func = self._preprocess.get_function(kwargs)
         X, y = self._load_data_from_df(sample, preprocess_func)
-        print(f"The embedding and label of {len(X)} companies have been loaded.")
+        if verbose:
+            print(f"The embedding and label of {len(X)} companies have been loaded.")
         return X, y
 
-    def load_training_test_data(self, level, train_cat_size: int, test_cat_prop: float, discard: list = [], **kwargs) -> tuple[list[list[float]], list[str]]:
+    def load_training_test_data(self, level, train_cat_size: int, test_cat_prop: float, discard: list = [], verbose: bool = True, **kwargs) -> tuple[list[list[float]], list[str]]:
         if not (0 < test_cat_prop < 1):
             raise ValueError("The test size has to be between 0 and 1.")
         seed = kwargs.get("seed", int(random.random()*1000))
@@ -337,7 +339,8 @@ class Data:
             else:
                 size = train_cat_size
             if size < min_amount:
-                print(f"Category {label} has been skipped due to an insufficient number of samples ({len(subset)} samples, at least {int((test_cat_prop * train_cat_size) + 1)} required).")
+                if verbose:
+                    print(f"Category {label} has been skipped due to an insufficient number of samples ({len(subset)} samples, at least {int((test_cat_prop * train_cat_size) + 1)} required).")
                 to_skip.append(label)
                 continue
             subset_sample = subset.sample(n            = size, 
@@ -359,54 +362,69 @@ class Data:
                                           replace      = False, 
                                           random_state = seed)
             test_sample = pd.concat([test_sample, subset_sample], ignore_index = True)
-        print(f"Categories {', '.join(to_skip)} have been skipped.")
+        if verbose:
+            print(f"Categories {', '.join(to_skip)} have been skipped.")
         prep_func = self._preprocess.get_function(kwargs)
         X_train, y_train = self._load_data_from_df(train_sample, prep_func)
         X_test, y_test = self._load_data_from_df(test_sample, prep_func)
-        print(f"It has loaded {len(X_train)} companies for training and {len(X_test)} companies for testing, spanning {len(labels) - len(to_skip)} categories.")
+        if verbose:
+            print(f"{len(X_train)} companies has been loaded for training and {len(X_test)} companies for testing, spanning {len(labels) - len(to_skip)} categories.")
         if "custom_dim" in kwargs:
             self._preprocess = Preprocess(initial_dim)
         return (X_train, y_train), (X_test, y_test)
 
-    def load_hierarchical_training_test_data(self, max_level: int, train_amount: tuple[int, int], test_prop: float, to_skip: list, **kwargs):
-        if max_level < 2 or max_level > 4:
-            raise ValueError("The maximum detail level must be between 2 and 4.")
+    def load_hierarchical_training_test_data(self, train_amount: tuple[int, int], test_prop: float, 
+                                             to_skip: list, verbose: bool = True, test_original: bool = False, 
+                                             return_test_df: bool = False, **kwargs):
         seed = kwargs.get("seed", int(random.random()*1000))
         min_amount = kwargs.get("min_amount", 0)
 
-        levels = list(range(1, max_level+1, 1))
-        temp = self.load_with_label(levels)
+        temp = self.load_with_label([1, 2])
         temp = temp[temp["available"] == True].reset_index()
-        test_size = ((len(temp["label_2"].unique())) * train_amount[0]) * test_prop
+        test_size = ((len(temp["label_1"].unique())) * train_amount[1]) * test_prop
 
-        train_level_1 = ([], [])
+        if test_original: 
+            original_distribution = self.load_distribution(level = 2)
+            available = original_distribution["main_activity"].unique()
+            original_distribution["test"] = (original_distribution["total"] / original_distribution["total"].sum()) * test_size
+        if return_test_df:
+            test_df = pd.DataFrame()
+
         train_level_2 = {}
         test = ([], [])
         prep_func = self._preprocess.get_function(kwargs)
 
+        prg_bar = tqdm(total = len(temp["label_2"].unique()), desc = "Loading training and test data")
         for level_1_label in temp["label_1"].unique():
-            if level_1_label in to_skip:
-                continue
             subset_1 = temp[temp["label_1"] == level_1_label]
             labels_level_2 = subset_1["label_2"].unique()
+            if level_1_label in to_skip:
+                prg_bar.update(len(labels_level_2))
+                continue
             default_level_2 = max(train_amount[0], int(min(len(subset_1), train_amount[1])/len(labels_level_2)))
             temp_train_level_2 = ([], [])
 
-            print("Section:", level_1_label)
+            if verbose:
+                print("Section:", level_1_label)
 
             for level_2_label in labels_level_2:
+                prg_bar.update(1)
                 subset_2 = subset_1[subset_1["label_2"] == level_2_label]
-                test_amount = max(1, int((len(subset_2)/len(temp)) * test_size))
+                if test_original and level_2_label in available:
+                    test_amount = max(1, int(original_distribution[original_distribution["main_activity"] == level_2_label]["test"]))
+                else:
+                    test_amount = max(1, int((len(subset_2)/len(temp)) * test_size))
                 if len(subset_2) <= (test_amount + default_level_2):
                     size = int(len(subset_2) - test_amount)
                 else:
                     size = default_level_2
                 if size < min_amount:
-                    print(f"Category {level_2_label} has been skipped due to an insufficient number of samples.")
+                    if verbose:
+                        print(f"Division {level_2_label} has been skipped due to an insufficient number of samples (Only {len(subset_2)} samples available).")
                     continue
 
-                print("  - Division:", level_2_label)
-                print(f"    Subset: {len(subset_2)}  |  Train: {size}  |  Test: {test_amount}  | Default: {default_level_2}")
+                if verbose:
+                    print(f"  - Division: {level_2_label} -> Available: {len(subset_2)}  |  Train: {size}  |  Test: {test_amount}")
 
                 train_subset = subset_2.sample(n            = size, 
                                                replace      = False, 
@@ -417,17 +435,19 @@ class Data:
                 test_subset = temp_test_subset.sample(n            = test_amount, 
                                                       replace      = False, 
                                                       random_state = seed)
+                if return_test_df:
+                    test_df = pd.concat([test_df, test_subset], ignore_index = True)
                 
                 X_train, _ = self._load_data_from_df(train_subset, prep_func)
                 X_test, _ = self._load_data_from_df(test_subset, prep_func)
-                train_level_1[0].extend(X_train)
-                train_level_1[1].extend([level_1_label] * len(X_train))
                 temp_train_level_2[0].extend(X_train)
                 temp_train_level_2[1].extend([level_2_label] * len(X_train))
                 test[0].extend(X_test)
                 test[1].extend([level_2_label] * len(X_test))
-            print(f"  Total: {len(temp_train_level_2[0])}")
             
             train_level_2[level_1_label] = temp_train_level_2
 
-        return train_level_1, train_level_2, test
+        prg_bar.close()
+        if return_test_df:
+            return train_level_2, test, test_df
+        return train_level_2, test
