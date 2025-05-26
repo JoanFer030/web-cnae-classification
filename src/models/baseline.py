@@ -1,5 +1,8 @@
-class MajorityClassifier:
-    def init(self):
+from sklearn.base import BaseEstimator, ClassifierMixin
+import numpy as np
+
+class MajorityClassifier(BaseEstimator, ClassifierMixin):
+    def __init__(self):
         self.majority_class = None
 
     def fit(self, X, y):
@@ -7,10 +10,12 @@ class MajorityClassifier:
         Train the classifier by finding the majority class in the target labels.
         
         :param X: Feature matrix (ignored in majority classifier)
-        :param y: List of class labels
+        :param y: List or array of class labels
         """
-        values = set(y)
-        self.majority_class = max(values, key = y.count)
+        y = list(y)
+        values, counts = np.unique(y, return_counts=True)
+        self.majority_class = values[np.argmax(counts)]
+        return self
 
     def predict(self, X):
         """
