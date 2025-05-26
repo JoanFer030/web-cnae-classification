@@ -22,5 +22,8 @@ features:
 
 models:
   base_path: "/home/jfernav/nas/web-cnae-classification/models/"
-  level_1: "level_1/"
+  max_size_level1: 2000
+  max_size_level2: 100
+  level_2: "level_2.pkl"
+  test_data: "testing.pkl"
   
