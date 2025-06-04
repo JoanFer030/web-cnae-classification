@@ -45,19 +45,20 @@ To reproduce or extend the analysis, follow these steps. All necessary parameter
 #### Prerequisites
 
 * Python 3.10+
-* `pip install -r requirements.txt`
+* Install dependencies: `pip install -r requirements.txt`
+* Add your OpenAI API key to `secrets.yaml` under the field `open_ai_api_key`
 
 #### Scripts
 
 ```bash
 # Step 1: Data collection from SABI and company website matching
-python src/scripts/run_data.py
+python src/scripts/run_data.py --config <path/to/parameters.yaml>
 
 # Step 2: Feature extraction (web scraping + embedding generation)
-python src/scripts/run_features.py
+python src/scripts/run_features.py --config <path/to/parameters.yaml> --secrets <path/to/secrets.yaml>
 
 # Step 3: Train and save the best-performing classification model
-python src/scripts/run_model_train.py
+python src/scripts/run_model_train.py --config <path/to/parameters.yaml>
 ```
 
 ### Repository Structure
